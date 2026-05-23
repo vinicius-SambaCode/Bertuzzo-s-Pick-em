@@ -1,0 +1,289 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  FISCAL
+  PLAYER
+}
+
+enum MatchStatus {
+  SCHEDULED
+  LIVE
+  FINISHED
+  CANCELLED
+}
+
+enum MatchStage {
+  GROUP_STAGE
+  ROUND_OF_32
+  ROUND_OF_16
+  QUARTER_FINAL
+  SEMI_FINAL
+  THIRD_PLACE
+  FINAL
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  OVERDUE
+  WAIVED
+}
+
+enum AuditAction {
+  USER_CREATE
+  USER_UPDATE
+  USER_DELETE
+  USER_LOGIN
+  MATCH_CREATE
+  MATCH_UPDATE
+  MATCH_RESULT_SET
+  PREDICTION_CREATE
+  PREDICTION_UPDATE
+  POINTS_CALCULATED
+  FISCAL_REVIEW_CREATE
+  PAYMENT_UPDATE
+  EMAIL_SENT
+}
+
+model User {
+  id            String    @id @default(cuid())
+  username      String    @unique       // login escolhido pelo usuário
+  email         String    @unique       // usado para notificações, não para login
+  name          String                  // nome de exibição
+  password      String
+  role          Role      @default(PLAYER)
+  avatarUrl     String?
+  isActive      Boolean   @default(true)
+  emailVerified DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  predictions          Prediction[]
+  financials           Financial[]
+  auditLogs            AuditLog[]
+  fiscalReviews        FiscalReview[]
+  emailLogs            EmailLog[]
+  tournamentPrediction TournamentPrediction?
+  accounts             Account[]
+  sessions             Session[]
+
+  @@index([email])
+  @@index([username])
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+model Team {
+  id        String  @id @default(cuid())
+  name      String  @unique
+  code      String  @unique
+  flagEmoji String?
+  group     String?
+  continent String?
+  createdAt DateTime @default(now())
+
+  homeMatches          Match[]               @relation("HomeTeam")
+  awayMatches          Match[]               @relation("AwayTeam")
+  championPredictions  TournamentPrediction[] @relation("PredictedChampion")
+  topScorerPredictions TournamentPrediction[] @relation("PredictedTopScorerTeam")
+
+  @@map("teams")
+}
+
+model Match {
+  id         String      @id @default(cuid())
+  homeTeamId String
+  awayTeamId String
+  matchDate  DateTime
+  venue      String?
+  stage      MatchStage
+  groupName  String?
+  round      Int
+  status     MatchStatus @default(SCHEDULED)
+
+  homeScore     Int?
+  awayScore     Int?
+  penaltyWinner String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  homeTeam      Team           @relation("HomeTeam", fields: [homeTeamId], references: [id])
+  awayTeam      Team           @relation("AwayTeam", fields: [awayTeamId], references: [id])
+  predictions   Prediction[]
+  fiscalReviews FiscalReview[]
+  emailLogs     EmailLog[]
+
+  @@index([matchDate])
+  @@index([status])
+  @@index([stage])
+  @@map("matches")
+}
+
+model Prediction {
+  id                String    @id @default(cuid())
+  userId            String
+  matchId           String
+  homeScorePred     Int
+  awayScorePred     Int
+  penaltyWinnerPred String?
+  points            Int?
+  calculatedAt      DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  match Match @relation(fields: [matchId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, matchId])
+  @@index([userId])
+  @@index([matchId])
+  @@map("predictions")
+}
+
+model TournamentPrediction {
+  id              String    @id @default(cuid())
+  userId          String    @unique
+  championTeamId  String?
+  topScorerName   String?
+  topScorerTeamId String?
+  championPoints  Int?
+  topScorerPoints Int?
+  calculatedAt    DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  user          User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  champion      Team? @relation("PredictedChampion", fields: [championTeamId], references: [id])
+  topScorerTeam Team? @relation("PredictedTopScorerTeam", fields: [topScorerTeamId], references: [id])
+
+  @@map("tournament_predictions")
+}
+
+model Financial {
+  id            String        @id @default(cuid())
+  userId        String
+  amount        Decimal       @db.Decimal(10, 2)
+  paymentStatus PaymentStatus @default(PENDING)
+  dueDate       DateTime?
+  paidAt        DateTime?
+  notes         String?
+  season        String        @default("2026")
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([paymentStatus])
+  @@map("financials")
+}
+
+model FiscalReview {
+  id        String   @id @default(cuid())
+  fiscalId  String
+  matchId   String
+  status    String
+  notes     String?
+  createdAt DateTime @default(now())
+
+  fiscal User  @relation(fields: [fiscalId], references: [id])
+  match  Match @relation(fields: [matchId], references: [id])
+
+  @@unique([fiscalId, matchId])
+  @@map("fiscal_reviews")
+}
+
+model AuditLog {
+  id         String      @id @default(cuid())
+  userId     String?
+  action     AuditAction
+  entityType String
+  entityId   String?
+  details    Json?
+  ipAddress  String?
+  createdAt  DateTime    @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model EmailLog {
+  id        String    @id @default(cuid())
+  userId    String?
+  matchId   String?
+  type      String
+  subject   String
+  status    String
+  sentAt    DateTime?
+  error     String?
+  createdAt DateTime  @default(now())
+
+  user  User?  @relation(fields: [userId], references: [id])
+  match Match? @relation(fields: [matchId], references: [id])
+
+  @@map("email_logs")
+}
+
+model SystemConfig {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  value       String
+  description String?
+  updatedAt   DateTime @updatedAt
+  updatedBy   String?
+
+  @@map("system_config")
+}

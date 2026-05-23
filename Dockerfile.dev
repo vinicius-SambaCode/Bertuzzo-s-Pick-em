@@ -1,0 +1,17 @@
+FROM node:20-alpine
+
+WORKDIR /app
+
+RUN apk add --no-cache curl openssl openssl-dev
+
+COPY package*.json ./
+COPY prisma ./prisma/
+
+RUN npm install
+
+RUN npx prisma generate
+
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
+EXPOSE 3000
